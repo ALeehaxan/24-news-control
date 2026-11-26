@@ -35,7 +35,7 @@ jobs:
         run: |
           node --input-type=module --check < js/app.js
           node --input-type=module --check < js/studio.js
-          node --test tests/data.test.mjs
+          node --test tests/*.test.mjs
           python3 -m unittest discover -s tests -p 'test_*.py'
           if ! node -e 'const c = require("./firebase-config.json"); process.exit(["apiKey", "authDomain", "projectId", "appId"].every(k => typeof c[k] === "string" && c[k].trim()) ? 0 : 1)'; then
             echo 'configured=false' >> "$GITHUB_OUTPUT"
@@ -45,7 +45,7 @@ jobs:
           mkdir -p public/js
           cp index.html radar.json public/
           node -e 'const c = require("./firebase-config.json"); console.log(JSON.stringify(Object.fromEntries(["apiKey", "authDomain", "projectId", "appId"].map(k => [k, c[k]]))))' > public/firebase-config.json
-          cp js/app.js js/studio.js js/data.mjs public/js/
+          cp js/app.js js/studio.js js/data.mjs js/article.mjs public/js/
           echo 'configured=true' >> "$GITHUB_OUTPUT"
       - uses: actions/upload-pages-artifact@v3
         if: steps.site.outputs.configured == 'true'

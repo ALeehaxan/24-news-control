@@ -2,6 +2,10 @@
 
 The newsroom keeps the original dashboard, story editor, source directory, graphic studio and publishing queue. English and Dhivehi can be used independently or together. News Radar adds public leads for Haa Alif, Haa Dhaalu, Shaviyani, Noonu and Raa. It collects headlines and links from Thiladhun and VNews RSS and regional Google News RSS searches. Leads are deduplicated and retained for up to 30 days. Coverage depends on the publishers and the region names in `scripts/radar.py`. Each scheduled run prepares an attributed draft in the source language using the headline and, when available, a short quoted excerpt from the publisher’s RSS feed. Review it in Radar, then select **Edit prepared draft** to bring the headline, body and link into the editor. Review and save before it enters the newsroom queue. Draft preparation uses no paid service.
 
+## Draft from a source article
+
+In the editor, select **Write full draft**. For matching Thiladhun links, Radar reads the publisher’s article body and caches several short excerpts. If no excerpts are available, paste several paragraphs under **Source article text (optional)** and enter a headline in the source language. Pasted text stays in the editor session. The tool assembles an attributed lead and separate source excerpts in English or Dhivehi. It uses rule-based composition and preserves the source language. Review and revise the generated text before saving or approving it.
+
 ## Prepare Firebase on Spark
 
 1. Export a JSON backup from **Settings** on the existing live site in each browser containing newsroom data. The updated app can also explicitly import the original browser data when it runs at the same origin. Each restore replaces the shared newsroom, so choose the authoritative backup or consolidate multiple backups before importing.
@@ -37,7 +41,7 @@ Firestore sync covers stories, approval states and source entries. Photos stay i
 ```sh
 node --input-type=module --check < js/app.js
 node --input-type=module --check < js/studio.js
-node --test tests/data.test.mjs
+node --test tests/*.test.mjs
 python3 -m unittest discover -s tests -p 'test_*.py'
 python3 scripts/radar.py --output /tmp/24-news-radar.json
 ```

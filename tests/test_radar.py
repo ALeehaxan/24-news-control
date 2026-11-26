@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import unittest
 
-from scripts.radar import feeds, match_region, merge, parse_feed
+from scripts.radar import article_excerpts, feeds, match_region, merge, parse_feed
 
 
 class RadarTest(unittest.TestCase):
@@ -48,3 +48,17 @@ class RadarTest(unittest.TestCase):
             <pubDate>Wed, 25 Nov 2026 15:00:00 GMT</pubDate></item>
         </channel></rss>"""
         self.assertEqual([i["region"] for i in parse_feed(rss.encode(), "Example", "Raa", self.now)], ["Raa"])
+
+    def test_full_source_uses_only_bounded_article_body_quotes(self):
+        body = [
+            "The council will open the community ferry terminal next week according to officials, who released the announcement on Thursday.",
+            "Residents will be able to use the new terminal throughout the week according to the schedule published by the island council.",
+            "The terminal adds a passenger waiting area and additional space for vehicles.",
+            "The council also published the timetable and contact details for residents who need help planning their journey."
+        ]
+        html = '<p>Ignore the navigation</p><div class="article-body">' + ''.join(f'<p>{line}</p>' for line in body) + '</div>'
+        excerpts = article_excerpts(html, "en")
+        self.assertGreaterEqual(len(excerpts), 2)
+        self.assertLessEqual(sum(map(len, excerpts)), sum(map(len, body)) // 4 + len(excerpts))
+        self.assertTrue(all("navigation" not in quote for quote in excerpts))
+        self.assertEqual(article_excerpts(html, "dv"), [])

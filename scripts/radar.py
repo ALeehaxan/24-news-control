@@ -9,7 +9,7 @@ from pathlib import Path
 import re
 import sys
 from urllib.parse import urlencode, urlsplit
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 import xml.etree.ElementTree as ET
 
 REGIONS = {
@@ -148,6 +148,100 @@ def parse_feed(xml, source, region_hint, now):
             yield item
 
 
+
+class ArticleRedirects(HTTPRedirectHandler):
+    def redirect_request(self, request, fp, code, msg, headers, target):
+        origin = urlsplit(request.full_url)
+        destination = urlsplit(target)
+        if not safe_url(target) or origin.netloc != destination.netloc or destination.scheme != "https":
+            raise ValueError("Article redirected outside the publisher")
+        return super().redirect_request(request, fp, code, msg, headers, target)
+
+
+class ArticleParagraphs(FeedDescription):
+    """Capture paragraphs in the publisher's article body."""
+
+    def __init__(self):
+        super().__init__()
+        self.depth = 0
+        self.paragraph = False
+        self.paragraphs = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "div":
+            if self.depth or "article-body" in (dict(attrs).get("class") or "").split():
+                self.depth += 1
+        if self.depth and tag == "p":
+            self.paragraph = True
+            self.text.clear()
+        if self.paragraph:
+            super().handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if self.paragraph:
+            super().handle_endtag(tag)
+            if tag == "p":
+                self.paragraph = False
+                self.paragraphs.append(" ".join("".join(self.text).split()))
+        if tag == "div" and self.depth:
+            self.depth -= 1
+
+    def handle_data(self, data):
+        if self.paragraph:
+            super().handle_data(data)
+
+
+def article_excerpts(html, language):
+    parser = ArticleParagraphs()
+    parser.feed(html)
+    parser.close()
+    paragraphs = list(dict.fromkeys(text for text in parser.paragraphs if len(text) >= 45))
+    if len(paragraphs) < 2 or bool(THAANA.search(" ".join(paragraphs))) != (language == "dv"):
+        return []
+    # Publish only excerpts. The complete source text stays in the collector process.
+    quote_budget = min(480, sum(map(len, paragraphs)) // 4)
+    count = min(4, len(paragraphs), quote_budget // 45)
+    if count < 2:
+        return []
+    per_paragraph = quote_budget // count
+    excerpts = []
+    for paragraph in paragraphs[:count]:
+        if len(paragraph) > per_paragraph:
+            paragraph = paragraph[:per_paragraph].rsplit(" ", 1)[0] + "…"
+        excerpts.append(paragraph)
+    return excerpts
+
+
+def collect_article(item):
+    url = item["url"]
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.netloc != "thiladhun.com":
+        return []
+    try:
+        opener = build_opener(ArticleRedirects())
+        with opener.open(Request(url, headers={"User-Agent": "24-News-Control-Radar/1.0"}), timeout=12) as response:
+            if response.headers.get_content_type() != "text/html":
+                return []
+            html = response.read(MAX_BYTES + 1)
+            if len(html) <= MAX_BYTES:
+                return article_excerpts(html.decode("utf-8", errors="replace"), item["language"])
+    except (OSError, ValueError) as error:
+        print(f"Article fetch failed for {parsed.path}: {error}", file=sys.stderr)
+    return []
+
+
+def enrich_articles(items, previous):
+    cached = {item["url"]: item["articleExcerpts"] for item in previous if item.get("articleExcerpts")}
+    for item in items:
+        if item["url"] in cached:
+            item["articleExcerpts"] = cached[item["url"]]
+    candidates = [item for item in items if item["source"] == "Thiladhun" and not item.get("articleExcerpts")][:12]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        for item, excerpts in zip(candidates, pool.map(collect_article, candidates)):
+            if excerpts:
+                item["articleExcerpts"] = excerpts
+
+
 def collect(feed, now):
     name, url, region = feed
     try:
@@ -175,7 +269,7 @@ def merge(items, now):
             continue
         seen_urls.add(item["url"])
         seen_headlines.add(headline)
-        result.append(item if item.get("draft") else {**item, "draft": prepare_draft(item)})
+        result.append({**item, "draft": item.get("draft") or prepare_draft(item)})
         if len(result) == LIMIT:
             break
     return result
@@ -193,6 +287,7 @@ def main():
     previous = json.loads(output.read_text()) if output.exists() else {"items": []}
     fresh = [item for result in results if result is not None for item in result]
     items = merge([*fresh, *previous["items"]], now)
+    enrich_articles(items, previous["items"])
     if items != previous["items"] or not previous.get("generatedAt"):
         temporary = output.with_suffix(".tmp")
         temporary.write_text(json.dumps({"generatedAt": now.isoformat(), "items": items}, ensure_ascii=False, indent=2) + "\n")

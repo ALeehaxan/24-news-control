@@ -1,5 +1,6 @@
 import { fields, categories, empty, validURL, normalizeBackup, publishingCaption } from './data.mjs';
 import { draw, dl, resetPhoto } from './studio.js';
+import { composeArticle, pastedExcerpts, sourceLanguage } from './article.mjs';
 
 const $ = id => document.getElementById(id);
 let db = empty();
@@ -7,6 +8,7 @@ let editing = null;
 let session = null;
 let pending = false;
 let radarRequest = 0;
+let articleRequest = 0;
 let sdk, auth, store;
 
 function el(tag, text, parent) {
@@ -164,6 +166,10 @@ async function save(approve) {
 
 function clearEditor() {
   editing = null;
+  articleRequest++;
+  $('articleText').value = '';
+  $('articleStatus').textContent = '';
+  $('writeFullDraft').disabled = false;
   for (const field of fields) $(field).value = '';
   $('category').selectedIndex = 0;
   $('verified').checked = false;
@@ -180,6 +186,70 @@ function edit(story) {
   $('exportApprovedPoster').hidden = story.status !== 'Approved';
   show('Editor');
 }
+
+$('writeFullDraft').onclick = async () => {
+  const status = $('articleStatus');
+  const url = $('source').value.trim();
+  if (!validURL(url)) {
+    status.textContent = 'Enter the source article URL first.';
+    return;
+  }
+  const pasted = $('articleText').value.trim();
+  const inputs = ['source', 'en', 'dv', 'bodyEn', 'bodyDv', 'articleText'];
+  const values = inputs.map(id => $(id).value);
+  const request = ++articleRequest;
+  $('writeFullDraft').disabled = true;
+  status.textContent = 'Preparing draft…';
+  try {
+    let language, headline, publisher, excerpts;
+    if (pasted) {
+      language = sourceLanguage(pasted);
+      headline = $(language).value.trim();
+      publisher = new URL(url).hostname.replace(/^www\./, '');
+      excerpts = pastedExcerpts(pasted);
+    } else {
+      const response = await fetch('./radar.json', { cache: 'no-cache' });
+      if (!response.ok) throw Error();
+      const radar = await response.json();
+      const item = radar.items.find(item => item.url === url && item.articleExcerpts?.length >= 2);
+      if (item) {
+        ({ language, source: publisher, articleExcerpts: excerpts } = item);
+        headline = $(language).value.trim() || item.title;
+      }
+    }
+    if (request !== articleRequest) return;
+    if (inputs.some((id, index) => $(id).value !== values[index])) {
+      status.textContent = 'The editor changed. Tap Write full draft again.';
+      return;
+    }
+    if (!excerpts || excerpts.length < 2) {
+      status.textContent = pasted
+        ? 'Paste several sentences from the source article.'
+        : 'No full source text available for this link. Paste the article text above and try again.';
+      return;
+    }
+    if (!headline) {
+      status.textContent = 'Enter a headline in the source language first.';
+      return;
+    }
+    const body = $(language === 'dv' ? 'bodyDv' : 'bodyEn');
+    if (body.value.trim() && !confirm('Replace the current article text in this language?')) {
+      status.textContent = '';
+      return;
+    }
+    $(language).value = headline;
+    body.value = composeArticle({ headline, publisher, excerpts, language });
+    $('verified').checked = false;
+    $('exportApprovedPoster').hidden = true;
+    $('lang').value = language;
+    draw();
+    status.textContent = 'Draft ready. Review the source, revise the text, then save or approve it.';
+  } catch {
+    if (request === articleRequest) status.textContent = 'Could not load the source. Paste the article text and try again.';
+  } finally {
+    if (request === articleRequest) $('writeFullDraft').disabled = false;
+  }
+};
 
 async function addSource() {
   const name = $('sn').value.trim();
@@ -298,6 +368,9 @@ async function loadRadar() {
       title.lang = item.language;
       title.dir = item.language === 'dv' ? 'rtl' : 'ltr';
       el('p', [item.source, item.region, new Date(item.publishedAt).toLocaleDateString()].join(' · '), panel);
+      if (Array.isArray(item.articleExcerpts) && item.articleExcerpts.length >= 2) {
+        el('small', 'Source text available for a full draft', panel);
+      }
       const draft = typeof item.draft === 'string' ? item.draft : '';
       const preview = el('p', draft, panel);
       preview.lang = title.lang;
@@ -311,6 +384,7 @@ async function loadRadar() {
         $(item.language === 'dv' ? 'dv' : 'en').value = item.title;
         $(item.language === 'dv' ? 'bodyDv' : 'bodyEn').value = draft;
         $('source').value = item.url;
+        $('lang').value = item.language;
         $('location').value = item.region;
         show('Editor');
       }, actions);
