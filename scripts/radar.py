@@ -1,8 +1,9 @@
-"""Collect public news leads. Runs with the Python standard library."""
+"""Find public news leads and prepare source-attributed drafts. Runs with the Python standard library."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
@@ -65,6 +66,54 @@ def match_region(text):
     return None
 
 
+class FeedDescription(HTMLParser):
+    """Extract visible text from the HTML fragments used in RSS descriptions."""
+
+    def __init__(self):
+        super().__init__()
+        self.text = []
+        self.hidden = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in {"script", "style"}:
+            self.hidden += 1
+        elif tag in {"br", "div", "p", "li"}:
+            self.text.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in {"script", "style"} and self.hidden:
+            self.hidden -= 1
+        elif tag in {"div", "p", "li"}:
+            self.text.append(" ")
+
+    def handle_data(self, data):
+        if not self.hidden:
+            self.text.append(data)
+
+
+def description_text(raw):
+    parser = FeedDescription()
+    parser.feed(raw[:8000])
+    parser.close()
+    return " ".join("".join(parser.text).split())
+
+
+def prepare_draft(item, description=""):
+    title = item["title"]
+    publisher = item["source"]
+    dhivehi = item["language"] == "dv"
+    lead = (f'“{title}” މި ސުރުޚީގެ ދަށުން {publisher} އިން ޚަބަރު އެރުވިއެވެ.'
+            if dhivehi else f'{publisher} reported the following: “{title}”')
+    if (description and bool(THAANA.search(description)) == dhivehi
+            and description.strip(".… ").casefold() != title.strip(".… ").casefold()):
+        excerpt = description
+        if len(excerpt) > 240:
+            excerpt = excerpt[:241].rsplit(" ", 1)[0][:240].rstrip(" .…") + "…"
+        attribution = "މަސްދަރުގެ ބައެއް" if dhivehi else "Source excerpt"
+        return f'{lead}\n\n{attribution}: “{excerpt}”'
+    return lead
+
+
 def parse_feed(xml, source, region_hint, now):
     document = ET.fromstring(xml)
     if document.tag != "rss" or document.find("channel") is None:
@@ -88,12 +137,15 @@ def parse_feed(xml, source, region_hint, now):
         region = match_region(title)
         if not region and not region_hint:
             region = match_region(" ".join(tag.text or "" for tag in entry.findall("category")))
-        if not region and not region_hint:
-            region = match_region(entry.findtext("description", "")[:3000])
+        description = description_text(entry.findtext("description", "")) if not region_hint else ""
+        if not region and description:
+            region = match_region(description)
         if region:
-            yield {"title": title[:500], "url": url, "source": publisher[:100],
-                   "publishedAt": published.isoformat(), "region": region,
-                   "language": "dv" if THAANA.search(title) else "en"}
+            item = {"title": title[:500], "url": url, "source": publisher[:100],
+                    "publishedAt": published.isoformat(), "region": region,
+                    "language": "dv" if THAANA.search(title) else "en"}
+            item["draft"] = prepare_draft(item, description)
+            yield item
 
 
 def collect(feed, now):
@@ -123,7 +175,7 @@ def merge(items, now):
             continue
         seen_urls.add(item["url"])
         seen_headlines.add(headline)
-        result.append(item)
+        result.append(item if item.get("draft") else {**item, "draft": prepare_draft(item)})
         if len(result) == LIMIT:
             break
     return result

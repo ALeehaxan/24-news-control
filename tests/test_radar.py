@@ -12,6 +12,7 @@ class RadarTest(unittest.TestCase):
           <item><title>ހދ. ކުޅުދުއްފުށި ޚަބަރު</title><link>https://example.org/dv</link>
             <pubDate>Wed, 25 Nov 2026 15:00:00 GMT</pubDate></item>
           <item><title>Harbour opens in Funadhoo - Example</title><link>https://example.org/en</link>
+            <description><![CDATA[<p>Ferry crews can now use the new dock.</p><script>ignored()</script>]]></description>
             <source>Example</source><pubDate>Wed, 25 Nov 2026 15:00:00 GMT</pubDate></item>
           <item><title>Malé update</title><link>https://example.org/other</link>
             <pubDate>Wed, 25 Nov 2026 15:00:00 GMT</pubDate></item>
@@ -22,6 +23,12 @@ class RadarTest(unittest.TestCase):
         self.assertEqual([(item["language"], item["region"]) for item in items],
                          [("dv", "Haa Dhaalu"), ("en", "Shaviyani")])
         self.assertEqual(items[1]["title"], "Harbour opens in Funadhoo")
+        self.assertIn("Example reported", items[1]["draft"])
+        self.assertIn("Source excerpt: “Ferry crews can now use the new dock.”", items[1]["draft"])
+        self.assertNotIn("ignored()", items[1]["draft"])
+        self.assertIn("ޚަބަރު އެރުވިއެވެ", items[0]["draft"])
+        legacy = {key: value for key, value in items[0].items() if key != "draft"}
+        self.assertEqual(merge([legacy], self.now)[0]["draft"], items[0]["draft"])
         self.assertEqual(merge([*items, dict(items[0], url="https://example.org/duplicate")], self.now), items)
 
     def test_region_boundaries_and_queries(self):

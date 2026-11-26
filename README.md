@@ -1,6 +1,6 @@
 # 24 News Control Center
 
-The newsroom keeps the original dashboard, story editor, source directory, graphic studio and publishing queue. English and Dhivehi can be used independently or together. News Radar adds public leads for Haa Alif, Haa Dhaalu, Shaviyani, Noonu and Raa. It collects headlines and links from Thiladhun and VNews RSS and regional Google News RSS searches. Leads are deduplicated and retained for up to 30 days. Coverage depends on the publishers and the region names in `scripts/radar.py`.
+The newsroom keeps the original dashboard, story editor, source directory, graphic studio and publishing queue. English and Dhivehi can be used independently or together. News Radar adds public leads for Haa Alif, Haa Dhaalu, Shaviyani, Noonu and Raa. It collects headlines and links from Thiladhun and VNews RSS and regional Google News RSS searches. Leads are deduplicated and retained for up to 30 days. Coverage depends on the publishers and the region names in `scripts/radar.py`. Each scheduled run prepares an attributed draft in the source language using the headline and, when available, a short quoted excerpt from the publisher’s RSS feed. Review it in Radar, then select **Edit prepared draft** to bring the headline, body and link into the editor. Review and save before it enters the newsroom queue. Draft preparation uses no paid service.
 
 ## Prepare Firebase on Spark
 

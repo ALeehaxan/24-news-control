@@ -288,7 +288,7 @@ async function loadRadar() {
     if (session !== active || request !== radarRequest) return;
     const items = data.items.filter(item => (!language || item.language === language) && validURL(item.url));
     status.textContent = data.generatedAt
-      ? 'Snapshot updated ' + new Date(data.generatedAt).toLocaleString() + '. Verify leads before use.'
+      ? 'Snapshot updated ' + new Date(data.generatedAt).toLocaleString() + '. Review each source and revise the draft before approval.'
       : 'Waiting for the first scheduled collection.';
     if (!items.length) el('p', 'No matching leads.', rows);
     for (const item of items) {
@@ -298,12 +298,18 @@ async function loadRadar() {
       title.lang = item.language;
       title.dir = item.language === 'dv' ? 'rtl' : 'ltr';
       el('p', [item.source, item.region, new Date(item.publishedAt).toLocaleDateString()].join(' · '), panel);
+      const draft = typeof item.draft === 'string' ? item.draft : '';
+      const preview = el('p', draft, panel);
+      preview.lang = title.lang;
+      preview.dir = title.dir;
+      preview.style.whiteSpace = 'pre-line';
       const actions = el('div', '', panel);
       actions.className = 'actions';
       link('Open source', item.url, actions);
-      btn('Open in editor', () => {
+      btn(draft ? 'Edit prepared draft' : 'Open in editor', () => {
         clearEditor();
         $(item.language === 'dv' ? 'dv' : 'en').value = item.title;
+        $(item.language === 'dv' ? 'bodyDv' : 'bodyEn').value = draft;
         $('source').value = item.url;
         $('location').value = item.region;
         show('Editor');

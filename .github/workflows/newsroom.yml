@@ -20,7 +20,7 @@ jobs:
       configured: ${{ steps.site.outputs.configured }}
     steps:
       - uses: actions/checkout@v4
-      - name: Collect public headlines
+      - name: Find stories and prepare drafts
         if: github.event_name != 'push'
         run: python3 scripts/radar.py
       - name: Save Radar snapshot
