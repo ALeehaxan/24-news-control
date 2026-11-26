@@ -1,1 +1,1 @@
-# 24-news-control.
+# 24-news-control
