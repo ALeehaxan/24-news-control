@@ -1,0 +1,66 @@
+name: News Radar and GitHub Pages
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: newsroom-pages
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref_name == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      configured: ${{ steps.site.outputs.configured }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect public headlines
+        if: github.event_name != 'push'
+        run: python3 scripts/radar.py
+      - name: Save Radar snapshot
+        if: github.event_name != 'push'
+        run: |
+          git add -- radar.json
+          if git diff --cached --quiet; then exit 0; fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m "Refresh public News Radar"
+          git push origin HEAD
+      - name: Stage public files
+        id: site
+        run: |
+          node --input-type=module --check < js/app.js
+          node --input-type=module --check < js/studio.js
+          node --test tests/data.test.mjs
+          python3 -m unittest discover -s tests -p 'test_*.py'
+          if ! node -e 'const c = require("./firebase-config.json"); process.exit(["apiKey", "authDomain", "projectId", "appId"].every(k => typeof c[k] === "string" && c[k].trim()) ? 0 : 1)'; then
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo 'Firebase web configuration is required before publishing.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          mkdir -p public/js
+          cp index.html radar.json public/
+          node -e 'const c = require("./firebase-config.json"); console.log(JSON.stringify(Object.fromEntries(["apiKey", "authDomain", "projectId", "appId"].map(k => [k, c[k]]))))' > public/firebase-config.json
+          cp js/app.js js/studio.js js/data.mjs public/js/
+          echo 'configured=true' >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.site.outputs.configured == 'true'
+        with:
+          path: public
+  deploy:
+    if: needs.prepare.outputs.configured == 'true'
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

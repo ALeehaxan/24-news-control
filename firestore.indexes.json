@@ -1,0 +1,8 @@
+{
+  "indexes": [],
+  "fieldOverrides": [
+    { "collectionGroup": "newsrooms", "fieldPath": "stories", "indexes": [] },
+    { "collectionGroup": "newsrooms", "fieldPath": "sources", "indexes": [] },
+    { "collectionGroup": "newsrooms", "fieldPath": "version", "indexes": [] }
+  ]
+}
